@@ -761,6 +761,37 @@ function renderSubtitle(){
   document.getElementById('subtitle').textContent = `${state.blocks.length} blocks · ${totHa.toFixed(1)} ha total · tap a block to log, or use Multi-Block for shared tasks`;
 }
 
+/* Merges a local and a server copy of state so that a save from one
+   device never wipes out entries another device saved in the meantime.
+   Blocks are matched by name; entries within a block are unioned by id
+   (so additions from either side survive). Block metadata (name, ha,
+   variety…) and team/task-type edits are taken from whichever side is
+   passed as "local" — safe in practice since those are rare admin edits. */
+function mergeStates(local, server){
+  const merged = { workers: local.workers, customTaskTypes: local.customTaskTypes || [] };
+
+  const workerMap = new Map();
+  (server.workers||[]).forEach(w=>workerMap.set(w.id,w));
+  (local.workers||[]).forEach(w=>workerMap.set(w.id,w));
+  merged.workers = Array.from(workerMap.values());
+
+  const taskSet = new Set([...(server.customTaskTypes||[]), ...(local.customTaskTypes||[])]);
+  merged.customTaskTypes = Array.from(taskSet);
+
+  const blockMap = new Map();
+  (server.blocks||[]).forEach(b=>blockMap.set(b.name, { ...b, entries: (b.entries||[]).slice() }));
+  (local.blocks||[]).forEach(b=>{
+    const existing = blockMap.get(b.name);
+    if(!existing){ blockMap.set(b.name, { ...b, entries: (b.entries||[]).slice() }); return; }
+    const entryMap = new Map();
+    (existing.entries||[]).forEach(e=>entryMap.set(e.id,e));
+    (b.entries||[]).forEach(e=>entryMap.set(e.id,e));
+    blockMap.set(b.name, { ...b, entries: Array.from(entryMap.values()) });
+  });
+  merged.blocks = Array.from(blockMap.values());
+  return merged;
+}
+
 async function saveState(){
   // Save locally first — instant, works offline
   localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(state));
@@ -778,12 +809,27 @@ async function saveState(){
   try{
     syncInFlight = true;
     refreshSyncLine();
-    await apiSet(STORAGE_KEY, JSON.stringify(state));
+
+    // Pull the freshest server copy and merge before pushing, so we never
+    // clobber entries another device saved between our last sync and now.
+    let toPush = state;
+    try{
+      const res = await apiGet(STORAGE_KEY);
+      if(res.value){
+        const serverState = normalizeState(JSON.parse(res.value));
+        toPush = mergeStates(state, serverState);
+        state = toPush;
+        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(state));
+      }
+    }catch(e){ /* pull failed — push local state as-is rather than block the save */ }
+
+    await apiSet(STORAGE_KEY, JSON.stringify(toPush));
     syncInFlight = false;
     pendingPush = false;
     lastSyncedAt = new Date();
     localStorage.removeItem(LOCAL_PENDING_KEY);
     flashStatus('Saved & synced');
+    renderGrid();
   }catch(e){
     syncInFlight = false;
     flashStatus('Saved locally — will sync when back online');
@@ -828,6 +874,13 @@ function startAutoSync(){
     if(document.visibilityState==='visible') syncNow(false);
   });
   window.addEventListener('online', ()=> syncNow(false));
+  window.addEventListener('beforeunload', (e)=>{
+    if(syncInFlight || pendingPush){
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    }
+  });
   setInterval(refreshSyncLine, 30000);
 }
 
