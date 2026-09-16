@@ -316,6 +316,7 @@ table.log-table tbody td.wrap-cell{ white-space:normal; max-width:220px; }
   </div>
 
   <div class="grid" id="grid"></div>
+  <div style="text-align:center;padding:16px 0 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-soft);opacity:0.5;">build <span id="versionTag">…</span></div>
 </div>
 
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
@@ -369,6 +370,7 @@ const SESSION_KEY = 'vineyard-session';
 const API_URL = 'https://script.google.com/macros/s/AKfycbzWXeAvT7K7YsZQPDqUGoL4lHmWTjI2k5Z2QCSN6y6b7KHirM1ob8Ae0BdewYLhuGOJ/exec';
 const API_TOKEN = 'Chardy27';    // stessa password messa in SECRET_TOKEN su Code.gs
 const AUTO_SYNC_SECONDS = 25;    // ogni quanto ricontrolla in background se ci sono novità
+const APP_VERSION = '2026-09-14-merge-sync';  // bump this string on every update, shown in the footer so we can tell which build a device is actually running
 /* ============================================================ */
 
 const TABS = [
@@ -1615,6 +1617,8 @@ document.getElementById('logOverlay').addEventListener('click', (e)=>{ if(e.targ
 document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closeModal(); closeSettings(); closeMulti(); closeLog(); } });
 
 async function init(){
+  const vt = document.getElementById('versionTag');
+  if(vt) vt.textContent = APP_VERSION;
   loadSession();
   await loadUsers();
   renderAuthGate();
